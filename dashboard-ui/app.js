@@ -1,5 +1,5 @@
 // dashboard-ui/app.js
-const routes = ['today', 'tasks', 'plan', 'settings', 'ai'];
+const routes = ['today', 'tasks', 'plan', 'settings', 'ai','emotion'];
 
 const state = {
   // Timer config (minutes)
@@ -12,10 +12,29 @@ const state = {
     gcal: { connected: false, email: null }
   },
 
-  ai: { 
+ ai: { 
     pdfs: [],
-    lastAnswer: ''
+    lastAnswer: '',
+    selectedPdf: null,
+    quizHistory: [],           // <--- add this
+    quiz: {
+      questions: [],
+      currentIndex: 0,
+      answers: [],
+      inProgress: false,
+      finished: false,
+      report: null
+    }
   },
+
+  emotion: {
+    history: [],
+    allow: false,              // consent to use webcam
+    lastAutoCheckTs: 0,        // last auto-check timestamp
+    isRunning: false,          // a check is currently running
+    currentSessionSamples: []  // samples for the active focus session
+  },
+
 
   // Tasks
   tasks: [],
@@ -55,6 +74,57 @@ function wireThemeToggle(){
 /*==================== Tiny helpers ====================*/
 function clamp(n, lo, hi){ return Math.max(lo, Math.min(hi, n)); }
 function escapeHtml(s=''){ return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+
+function showToast(message, kind = 'info') {
+  let box = document.getElementById('sbToastContainer');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'sbToastContainer';
+    Object.assign(box.style, {
+      position: 'fixed',
+      right: '16px',
+      bottom: '16px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '8px',
+      zIndex: 9999
+    });
+    document.body.appendChild(box);
+  }
+
+  const toast = document.createElement('div');
+  toast.textContent = message;
+  Object.assign(toast.style, {
+    padding: '8px 12px',
+    borderRadius: '8px',
+    fontSize: '13px',
+    background: kind === 'warn'
+      ? 'rgba(255, 149, 128, 0.12)'
+      : 'rgba(129, 230, 217, 0.12)',
+    color: 'var(--text)',
+    border: '1px solid var(--border-strong)',
+    opacity: '0',
+    transform: 'translateY(6px)',
+    transition: 'opacity .18s ease, transform .18s ease'
+  });
+
+  box.appendChild(toast);
+  requestAnimationFrame(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+  });
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(6px)';
+    setTimeout(() => toast.remove(), 200);
+  }, 3500);
+}
+
+
+
+
 function loadIntegrations(){
   try {
     const raw = localStorage.getItem('sb.integrations');
@@ -65,11 +135,155 @@ function saveIntegrations(){
   try { localStorage.setItem('sb.integrations', JSON.stringify(state.integrations)); } catch {}
 }
 
+function loadEmotionHistory() {
+  try {
+    const raw = localStorage.getItem('sb.emotionHistory');
+    if (raw) state.emotion.history = JSON.parse(raw);
+  } catch {
+    state.emotion.history = [];
+  }
+}
+
+function saveEmotionHistory() {
+  try {
+    localStorage.setItem('sb.emotionHistory', JSON.stringify(state.emotion.history));
+  } catch {}
+}
+
+function loadEmotionPrefs() {
+  try {
+    const raw = localStorage.getItem('sb.emotionPrefs');
+    if (raw) {
+      const o = JSON.parse(raw);
+      state.emotion.allow = !!o.allow;
+    }
+  } catch {}
+}
+
+function saveEmotionPrefs() {
+  try {
+    localStorage.setItem('sb.emotionPrefs', JSON.stringify({
+      allow: !!state.emotion.allow
+    }));
+  } catch {}
+}
+
+function renderEmotionHistory() {
+  const list = $('#emotionHistory');
+  if (!list) return;
+
+  const items = state.emotion.history || [];
+  if (!items.length) {
+    list.innerHTML = '<li class="empty">No history yet.</li>';
+    return;
+  }
+
+  list.innerHTML = '';
+  for (const entry of items) {
+    const d = new Date(entry.ts || Date.now());
+    const when = d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div class="card" style="padding:10px; display:flex; flex-direction:column; gap:4px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <strong>${entry.classification || 'Unknown'}</strong>
+          <span style="margin-left:6px;">${(entry.score ?? 0).toFixed(2)}/10</span>
+          ${entry.emotion ? `<span class="chip" style="margin-left:auto;">${entry.emotion}</span>` : ''}
+        </div>
+        <div class="muted" style="font-size:12px;">${when}</div>
+      </div>
+    `;
+    list.appendChild(li);
+  }
+}
+
+
+// simple notification helper (renderer Notifications)
+function emotionNotify(title, body) {
+  try {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'granted') {
+      new Notification(title, { body });
+    }
+  } catch {
+    // ignore
+  }
+}
+
+
+const EMOTION_AUTO_INTERVAL_MS = 2 * 60_000; // 2 minutes
+
+async function runEmotionCheckAuto() {
+  if (!state.emotion.allow) return;
+  if (state.emotion.isRunning) return;
+
+  state.emotion.isRunning = true;
+  try {
+    const res = await window.electronAPI.ai.attentive();
+    console.log('ai:attentive (auto) result', res);
+
+    if (!res || !res.ok || res.data?.ok === false) {
+      const msg = res?.error || res?.data?.error || 'Attentiveness check failed.';
+      console.warn('Auto check failed:', msg);
+      return;
+    }
+
+    const payload = res.data || {};
+    const score = typeof payload.score === 'number'
+      ? payload.score
+      : (payload.normalized_score ?? 0);
+    const classification = payload.classification || 'Unknown';
+    const emotion = (payload.details && payload.details.emotion) || payload.emotion || '';
+
+    const entry = {
+      ts: Date.now(),
+      score,
+      classification,
+      emotion,
+      source: 'auto'
+    };
+
+    state.emotion.history.unshift(entry);
+    state.emotion.history = state.emotion.history.slice(0, 50);
+    saveEmotionHistory();
+    renderEmotionHistory();
+
+    if (TIMER.phase === 'focus') {
+      state.emotion.currentSessionSamples.push({ ts: entry.ts, score, classification, emotion });
+    }
+
+    const isDistracted = (classification || '').toLowerCase() === 'distracted' || score < 6;
+    if (isDistracted) {
+      emotionNotify('StudyBuddy', 'You seem a bit distracted during this session.');
+    } else {
+      emotionNotify('StudyBuddy', 'Focus check: you’re doing great.');
+    }
+  } catch (err) {
+    console.error('ai:attentive (auto) error', err);
+  } finally {
+    state.emotion.isRunning = false;
+  }
+}
+
+function maybeAutoEmotionCheck() {
+  if (!state.emotion.allow) return;
+  if (TIMER.phase !== 'focus') return;
+  const now = Date.now();
+  if (now - (state.emotion.lastAutoCheckTs || 0) < EMOTION_AUTO_INTERVAL_MS) return;
+
+  state.emotion.lastAutoCheckTs = now;
+  // fire and forget
+  runEmotionCheckAuto();
+}
+
+
+
+/*==================== AI helpers ====================*/
 /*==================== AI helpers ====================*/
 function loadAIPdfs() {
   try {
     const raw = localStorage.getItem('sb.aiPdfs');
-    if (raw) state.ai.pdfs = JSON.parse(raw);
+    state.ai.pdfs = raw ? JSON.parse(raw) : [];
   } catch {
     state.ai.pdfs = [];
   }
@@ -85,7 +299,8 @@ function renderAIPdfList() {
   const list = $('#aiPdfList');
   if (!list) return;
 
-  const pdfs = state.ai.pdfs;
+  const pdfs = state.ai.pdfs || [];
+
   if (!pdfs.length) {
     list.innerHTML = '<li class="empty">No PDFs added yet. Click “Add PDF notes”.</li>';
     return;
@@ -94,16 +309,142 @@ function renderAIPdfList() {
   list.innerHTML = '';
   for (const item of pdfs) {
     const li = document.createElement('li');
+    li.style.cursor = 'pointer';
+
+    const isSelected = state.ai.selectedPdf && state.ai.selectedPdf.path === item.path;
+
     li.innerHTML = `
-      <div style="display:flex; align-items:center; gap:8px;">
+      <div style="
+        display:flex;
+        align-items:center;
+        gap:8px;
+        padding:6px 8px;
+        border-radius:8px;
+        ${isSelected ? 'background: rgba(139,124,251,0.15);' : ''}
+      ">
         <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
           ${escapeHtml(item.name || item.path)}
         </span>
-        <span class="chip">${item.pages || '?'} pages</span>
+        <span class="chip">${item.pages ?? '?'} pages</span>
       </div>
     `;
+
+    li.addEventListener('click', () => {
+      state.ai.selectedPdf = item;
+      renderAIPdfList();  // re-render to update highlight
+    });
+
     list.appendChild(li);
   }
+}
+
+
+function getQuizState() {
+  if (!state.ai.quiz) {
+    state.ai.quiz = { questions: [], index: 0, answers: [] };
+  }
+  return state.ai.quiz;
+}
+
+function saveQuizHistory() {
+  try {
+    localStorage.setItem('sb.quizHistory', JSON.stringify(state.ai.quizHistory || []));
+  } catch {}
+}
+
+function renderQuizQuestion(resultBox, statusLabel) {
+  const quiz = getQuizState();
+  const total = quiz.questions.length;
+  const i = quiz.index;
+  const q = quiz.questions[i];
+
+  if (!q) {
+    resultBox.textContent = 'No question to show.';
+    return;
+  }
+
+  statusLabel.textContent = `Question ${i + 1} of ${total}`;
+
+  resultBox.innerHTML = `
+    <div style="margin-bottom:8px;">
+      <strong>Question ${i + 1} of ${total}</strong>
+    </div>
+    <div style="margin-bottom:12px;">${escapeHtml(q.question)}</div>
+    <form id="aiQuizForm">
+      ${['a','b','c','d'].map(l => `
+        <label style="display:block; margin:4px 0;">
+          <input type="radio" name="opt" value="${l}"> ${l}) ${escapeHtml(q[l] || '')}
+        </label>
+      `).join('')}
+    </form>
+    <button class="btn small" id="aiQuizSubmit">Submit</button>
+    <div id="aiQuizFeedback" class="muted" style="margin-top:8px;"></div>
+  `;
+
+  const submitBtn = $('#aiQuizSubmit');
+  const feedback = $('#aiQuizFeedback');
+
+  submitBtn.onclick = () => {
+    const checked = resultBox.querySelector('input[name="opt"]:checked');
+    if (!checked) {
+      feedback.textContent = 'Choose an option first.';
+      return;
+    }
+
+    const choice = checked.value;
+    const correct = String(q.correct || '').toLowerCase();
+    const isCorrect = choice === correct;
+
+    quiz.answers[i] = { choice, correct, isCorrect };
+
+    feedback.textContent = isCorrect
+      ? 'Correct! 🎉'
+      : `Incorrect. Correct answer is ${correct.toUpperCase()}.`;
+
+    // move to next / finish
+    if (i < total - 1) {
+      submitBtn.textContent = 'Next question';
+      submitBtn.onclick = () => {
+        quiz.index++;
+        renderQuizQuestion(resultBox, statusLabel);
+      };
+    } else {
+      submitBtn.textContent = 'View score';
+      submitBtn.onclick = () => renderQuizSummary(resultBox, statusLabel);
+    }
+  };
+}
+
+function renderQuizSummary(resultBox, statusLabel) {
+  const quiz = getQuizState();
+  const qs = quiz.questions;
+  const ans = quiz.answers;
+
+  const total = qs.length;
+  const score = ans.filter(a => a && a.isCorrect).length;
+
+  statusLabel.textContent = `Score: ${score} / ${total}`;
+
+  // store in history
+  state.ai.quizHistory.push({
+    ts: Date.now(),
+    total,
+    score
+  });
+  saveQuizHistory();
+
+  const lines = [];
+  lines.push(`You scored ${score} out of ${total}.\n`);
+  qs.forEach((q, i) => {
+    const a = ans[i] || {};
+    lines.push(`${i + 1}. ${q.question}`);
+    lines.push(`   Your answer:   ${a.choice ? a.choice.toUpperCase() : '-'}  (${a.choice ? q[a.choice] : ''})`);
+    lines.push(`   Correct answer: ${String(q.correct).toUpperCase()} (${q[q.correct]})`);
+    lines.push(a.isCorrect ? '   ✅ Correct' : '   ❌ Incorrect');
+    lines.push('');
+  });
+
+  resultBox.textContent = lines.join('\n');
 }
 
 
@@ -318,6 +659,12 @@ function updateTimerButtons(){
 function startPhase(name){
   TIMER.phase = name;             // 'focus'|'break-short'|'break-long'
   TIMER.startedAt = Date.now();
+
+  if (name === 'focus') {
+    state.emotion.currentSessionSamples = [];
+    state.emotion.lastAutoCheckTs = 0;
+  }
+
   const mins = (name==='focus') ? state.timer.focus
             : (name==='break-long' ? state.timer.long : state.timer.short);
 
@@ -343,7 +690,19 @@ function stopTimer(){
   const elapsedSec = Math.round((Date.now() - (TIMER.startedAt||Date.now()))/1000);
   if (wasFocus && elapsedSec > 0) {
     if (confirm(`Count ${Math.floor(elapsedSec/60)} min ${elapsedSec%60}s as focus time?`)) {
-      logSession('focus', TIMER.startedAt, Date.now(), elapsedSec, /*completed*/ false);
+      const emotionSummary = buildEmotionSummaryForCurrentSession();
+      logSession('focus', TIMER.startedAt, Date.now(), elapsedSec, /*completed*/ false, emotionSummary);
+
+      if (emotionSummary && emotionSummary.checks > 0) {
+        const avg = emotionSummary.avgScore.toFixed(2);
+        emotionNotify(
+          'Session finished',
+          `Avg attentiveness ${avg}/10 over ${emotionSummary.checks} checks (${emotionSummary.distractedCount} distracted).`
+        );
+      }
+
+      state.emotion.currentSessionSamples = [];
+
     }
   }
   TIMER.phase='idle'; setFaceFromMs(state.timer.focus*60_000); updateTimerButtons();
@@ -352,11 +711,53 @@ function nextBreakKind(){
   const n = state.timer.every || 4;
   return (TIMER.completedFocusCount > 0 && TIMER.completedFocusCount % n === 0) ? 'break-long' : 'break-short';
 }
+function buildEmotionSummaryForCurrentSession() {
+  const samples = state.emotion.currentSessionSamples || [];
+  if (!samples.length) return null;
+
+  const checks = samples.length;
+  const avgScore = samples.reduce((sum, s) => sum + (s.score || 0), 0) / checks;
+  const distractedCount = samples.filter(s => {
+    const cls = (s.classification || '').toLowerCase();
+    return cls === 'distracted' || (s.score || 0) < 6;
+  }).length;
+
+  return {
+    checks,
+    avgScore,
+    distractedCount
+  };
+}
+
 function finishFocus(){
   TIMER.completedFocusCount++;
-  logSession('focus', TIMER.startedAt, Date.now(), TIMER.totalMs/1000, /*completed*/ true);
+
+  const emotionSummary = buildEmotionSummaryForCurrentSession();
+
+  logSession(
+    'focus',
+    TIMER.startedAt,
+    Date.now(),
+    TIMER.totalMs/1000,
+    /*completed*/ true,
+    emotionSummary
+  );
+
+  // nice little summary notification
+  if (emotionSummary && emotionSummary.checks > 0) {
+    const avg = emotionSummary.avgScore.toFixed(2);
+    emotionNotify(
+      'Session finished',
+      `Avg attentiveness ${avg}/10 over ${emotionSummary.checks} checks (${emotionSummary.distractedCount} distracted).`
+    );
+  }
+
+  state.emotion.currentSessionSamples = [];
+
   startPhase(nextBreakKind());
 }
+
+
 function finishBreak(){
   logSession(TIMER.phase, TIMER.startedAt, Date.now(), TIMER.totalMs/1000, /*completed*/ true);
   TIMER.phase='idle';
@@ -367,6 +768,9 @@ function finishBreak(){
 function tick(){
   TIMER.remainingMs -= 1000;
   setFaceFromMs(TIMER.remainingMs);
+    // while in a focus session, occasionally run auto emotion checks
+  try { maybeAutoEmotionCheck(); } catch {}
+
   if (TIMER.remainingMs <= 0) {
     clearInterval(TIMER.tickId); TIMER.tickId=null;
     if (TIMER.phase==='focus') finishFocus();
@@ -404,15 +808,21 @@ function wireTimer(){
 }
 
 /*-------- Sessions history + stats --------*/
-async function logSession(type, startTs, endTs, seconds, completed){
+async function logSession(type, startTs, endTs, seconds, completed, emotionSummary){
   try {
-    const sessions = await window.electronAPI.timer.addSession({ type, startTs, endTs, seconds, completed });
+    const sessions = await window.electronAPI.timer.addSession({
+      type, startTs, endTs, seconds, completed, emotionSummary
+    });
     state.sessions = Array.isArray(sessions) ? sessions : [];
   } catch {
-    state.sessions.push({ id: Math.random().toString(36).slice(2), type, startTs, endTs, seconds, completed });
+    state.sessions.push({
+      id: Math.random().toString(36).slice(2),
+      type, startTs, endTs, seconds, completed, emotionSummary
+    });
   }
   paintHistory(); computeStatsAndPaint();
 }
+
 async function loadSessions(){
   try {
     const sessions = await window.electronAPI.timer.listSessions();
@@ -767,6 +1177,7 @@ function wireTimerAdjust(){
 }
 
 /*==================== AI Chatbot (backend via IPC) ====================*/
+/*==================== AI Chatbot (backend via IPC) ====================*/
 function wireAI(){
   const topicInput     = $('#aiTopic');
   const difficultySel  = $('#aiDifficulty');
@@ -796,15 +1207,206 @@ function wireAI(){
     resultBox.textContent = '⚠ ' + msg;
   };
 
-  const setResult = (text) => {
+  // ---- quiz helpers ----
+  function resetQuiz() {
+    state.ai.quiz = {
+      questions: [],
+      currentIndex: 0,
+      answers: [],
+      inProgress: false,
+      finished: false,
+      report: null
+    };
+  }
+
+  function renderQuiz() {
+    const quiz = state.ai.quiz;
+    const box = resultBox;
+
+    // no quiz yet
+    if (!quiz.questions.length) {
+      box.innerHTML = `
+        <div style="color:var(--muted);">
+          No quiz in progress. Generate a quiz from the left panel to start.
+        </div>
+      `;
+      return;
+    }
+
+    // finished → show report
+    if (quiz.finished && quiz.report) {
+      const { correctCount, total, percent, details } = quiz.report;
+
+      const summaryHtml = `
+        <div style="margin-bottom:12px;">
+          <strong>Score:</strong> ${correctCount}/${total} (${percent}%)  
+        </div>
+      `;
+
+      const itemsHtml = details.map((item, idx) => {
+        const q = item.question;
+        const your = item.yourAnswer
+          ? item.yourAnswer.toUpperCase()
+          : '<em>Not answered</em>';
+        const correct = item.correctAnswer.toUpperCase();
+        const isCorrect = item.isCorrect;
+        const yourText = item.yourAnswerText || '';
+        const correctText = item.correctAnswerText || '';
+
+        return `
+          <div class="card" style="padding:8px 10px; margin-bottom:8px;">
+            <div style="margin-bottom:4px;"><strong>Q${idx+1}.</strong> ${escapeHtml(q)}</div>
+            <div style="font-size:13px;">
+              <div><strong>Your answer:</strong> ${your}${yourText ? ` — ${escapeHtml(yourText)}` : ''}</div>
+              <div><strong>Correct answer:</strong> ${correct}${correctText ? ` — ${escapeHtml(correctText)}` : ''}</div>
+              <div style="margin-top:2px;">
+                ${isCorrect ? '✅ Correct' : '❌ Incorrect'}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      box.innerHTML = summaryHtml + itemsHtml + `
+        <button class="btn small ghost" id="aiNewQuizBtn" style="margin-top:8px;">
+          Start a new quiz
+        </button>
+      `;
+
+      $('#aiNewQuizBtn')?.addEventListener('click', () => {
+        resetQuiz();
+        setStatus('Generate a quiz on the left to start.');
+        renderQuiz();
+      });
+
+      return;
+    }
+
+    // otherwise: show current question
+    const idx = quiz.currentIndex;
+    const total = quiz.questions.length;
+    const q = quiz.questions[idx];
+    const selected = quiz.answers[idx] || '';
+
+    const optionRow = (key, label) => `
+      <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;">
+        <input type="radio" name="aiOption" value="${key}" ${selected === key ? 'checked' : ''}/>
+        <span>${key.toUpperCase()}) ${escapeHtml(label || '')}</span>
+      </label>
+    `;
+
+    box.innerHTML = `
+      <div style="margin-bottom:8px;font-size:13px;color:var(--muted);">
+        Question ${idx+1} of ${total}
+      </div>
+      <div style="margin-bottom:8px;">
+        ${escapeHtml(q.question || '')}
+      </div>
+      <form id="aiQuizForm" style="display:flex;flex-direction:column;gap:4px;font-size:14px;">
+        ${optionRow('a', q.a)}
+        ${optionRow('b', q.b)}
+        ${optionRow('c', q.c)}
+        ${optionRow('d', q.d)}
+      </form>
+      <div style="display:flex;justify-content:space-between;margin-top:10px;gap:8px;">
+        <button class="btn small ghost" id="aiPrevBtn" ${idx===0 ? 'disabled' : ''}>Previous</button>
+        <div style="margin-left:auto;display:flex;gap:8px;">
+          ${idx < total-1
+            ? '<button class="btn small" id="aiNextBtn">Next</button>'
+            : '<button class="btn small" id="aiSubmitBtn">Submit quiz</button>'
+          }
+        </div>
+      </div>
+    `;
+
+    const form = $('#aiQuizForm');
+
+    const getSelected = () => {
+      const input = form.querySelector('input[name="aiOption"]:checked');
+      return input ? input.value : '';
+    };
+
+    $('#aiPrevBtn')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      quiz.answers[idx] = getSelected() || quiz.answers[idx];
+      if (quiz.currentIndex > 0) quiz.currentIndex--;
+      renderQuiz();
+    });
+
+    $('#aiNextBtn')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      const sel = getSelected();
+      if (!sel) {
+        alert('Choose an option before moving to the next question.');
+        return;
+      }
+      quiz.answers[idx] = sel;
+      if (quiz.currentIndex < total-1) quiz.currentIndex++;
+      renderQuiz();
+    });
+
+    $('#aiSubmitBtn')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      const sel = getSelected();
+      if (sel) quiz.answers[idx] = sel;
+
+      const unanswered = quiz.answers.filter(a => !a).length;
+      if (unanswered > 0) {
+        const ok = confirm(`You have ${unanswered} unanswered question(s). Submit anyway?`);
+        if (!ok) return;
+      }
+
+      // build report
+      let correctCount = 0;
+      const details = quiz.questions.map((q, i) => {
+        const your = quiz.answers[i] || '';
+        const correct = (q.correct || '').toLowerCase();
+        const isCorrect = your && your.toLowerCase() === correct;
+        if (isCorrect) correctCount++;
+
+        const answerText = (opt) => {
+          switch(opt) {
+            case 'a': return q.a || '';
+            case 'b': return q.b || '';
+            case 'c': return q.c || '';
+            case 'd': return q.d || '';
+            default: return '';
+          }
+        };
+
+        return {
+          question: q.question || '',
+          yourAnswer: your,
+          correctAnswer: q.correct || '',
+          yourAnswerText: answerText(your.toLowerCase()),
+          correctAnswerText: answerText(correct),
+          isCorrect
+        };
+      });
+
+      const totalQ = quiz.questions.length;
+      const percent = totalQ > 0 ? Math.round(correctCount * 100 / totalQ) : 0;
+
+      quiz.inProgress = false;
+      quiz.finished = true;
+      quiz.report = { correctCount, total: totalQ, percent, details };
+
+      setStatus(`Quiz finished: ${correctCount}/${totalQ} correct (${percent}%).`);
+      renderQuiz();
+    });
+  }
+
+  // plain text result for summary / doubt
+  const showPlainResult = (text) => {
+    resetQuiz();
     resultBox.textContent = text || '';
   };
 
-  // ----- load stored PDFs and render -----
+  // ----- load stored PDFs and render -----  
   loadAIPdfs();
   renderAIPdfList();
 
-  addPdfBtn?.addEventListener('click', async () => {
+    addPdfBtn?.addEventListener('click', async () => {
     setStatus('Select a PDF to add to your notes…');
     try {
       const res = await window.electronAPI.ai.ingest();
@@ -821,7 +1423,16 @@ function wireAI(){
 
       const pages = res.data.pages ?? 0;
       const path  = res.data.path ?? 'file';
-      setStatus(`Added "${path}" (${pages} pages) to your notes.`);
+      const name  = path.split(/[\\/]/).pop() || path;
+
+      // store in state + localStorage
+      const entry = { path, name, pages };
+      state.ai.pdfs.push(entry);
+      state.ai.selectedPdf = entry; // auto-select latest
+      saveAIPdfs();
+      renderAIPdfList();
+
+      setStatus(`Added "${name}" (${pages} pages) to your notes.`);
     } catch (err) {
       console.error('ai:ingest error', err);
       showError(String(err));
@@ -829,6 +1440,7 @@ function wireAI(){
   });
 
 
+  // ---- QUIZ BUTTON ----
   quizBtn?.addEventListener('click', async () => {
     const topic = topicInput?.value.trim() || '';
     const difficulty = difficultySel?.value || 'Medium';
@@ -840,6 +1452,7 @@ function wireAI(){
     }
 
     setStatus('Generating quiz…');
+    resetQuiz();
     resultBox.textContent = '';
 
     try {
@@ -856,25 +1469,22 @@ function wireAI(){
         return;
       }
 
-      const lines = qs.map((q, idx) => {
-        return [
-          `Q${idx + 1}. ${q.question}`,
-          `  a) ${q.a}`,
-          `  b) ${q.b}`,
-          `  c) ${q.c}`,
-          `  d) ${q.d}`,
-          `  (Correct: ${q.correct.toUpperCase()})`,
-        ].join('\n');
-      });
+      state.ai.quiz.questions = qs;
+      state.ai.quiz.currentIndex = 0;
+      state.ai.quiz.answers = new Array(qs.length).fill('');
+      state.ai.quiz.inProgress = true;
+      state.ai.quiz.finished = false;
+      state.ai.quiz.report = null;
 
-      resultBox.textContent = lines.join('\n\n');
-      setStatus(`Generated ${qs.length} questions for "${topic}".`);
+      setStatus(`Quiz ready: ${qs.length} questions on "${topic}".`);
+      renderQuiz();
     } catch (err) {
       console.error('ai:quiz error', err);
       showError(String(err));
     }
   });
 
+  // ---- DOUBT BUTTON ----
   askBtn?.addEventListener('click', async () => {
     const question = questionInput?.value.trim() || '';
     if (!question) {
@@ -897,7 +1507,7 @@ function wireAI(){
       }
 
       const ans = res.data.answer || '';
-      resultBox.textContent = ans;
+      showPlainResult(ans);
       state.ai.lastAnswer = ans;
       setStatus('Answer ready. You can ask a follow-up like "explain better".');
     } catch (err) {
@@ -906,43 +1516,204 @@ function wireAI(){
     }
   });
 
-  summarizeBtn?.addEventListener('click', async () => {
+  // ---- SUMMARY BUTTON ----
+    summarizeBtn?.addEventListener('click', async () => {
     const mode = summaryModeSel?.value || 'Detailed';
+
+    // figure out which PDF to summarize
+    const selected = state.ai.selectedPdf;
+    let sourcePath = selected ? selected.path : null;
+
+    if (!sourcePath) {
+      const ok = confirm('No specific note selected. Summarize ALL notes instead?');
+      if (!ok) {
+        setStatus('');
+        return;
+      }
+    }
 
     setStatus('Summarizing your notes (this can take a bit)…');
     resultBox.textContent = '';
 
     try {
-  const res = await window.electronAPI.ai.summarize(mode);
-  console.log('ai:summarize result', res);
+      // IMPORTANT: preload/main must be updated to accept (mode, sourcePath)
+      const res = await window.electronAPI.ai.summarize(mode, sourcePath);
+      console.log('ai:summarize result', res);
+      if (!res || !res.ok ) {
+        showError(res?.error || res?.data?.error || 'Summary failed.');
+        return;
+      }
 
-  if (!res || !res.ok) {
-    showError(res?.error || "Summary failed.");
-    return;
-  }
-
-  // Summary is ready immediately
-  if (res.summary) {
-    resultBox.textContent = res.summary;
-    setStatus(`Summary ready (${mode}).`);
-    return;
-  }
-
-  // Summary not ready yet, background processing
-  if (res.jobId) {
-    setStatus("Summarizing… (still processing)");
-    resultBox.textContent = "(Working in background…)";
-    return;
-  }
-
-  showError("Unexpected response format.");
-} catch (err) {
-  console.error('ai:summarize error', err);
-  showError(String(err));
-}
-
+      showPlainResult(res.summary || '');
+      setStatus(`Summary ready (${mode}).`);
+    } catch (err) {
+      console.error('ai:summarize error', err);
+      showError(String(err));
+    }
   });
+
+
+
+
 }
+
+
+
+/*==================== Emotion / Attentiveness ====================*/
+function wireEmotion() {
+  const consentCheckbox = $('#chkEmotionConsent');
+  const video = $('#emotionVideo');
+  const runBtn = $('#emotionRun');
+  const statusEl = $('#emotionStatus');
+  const lastResultEl = $('#emotionLastResult');
+
+  if (!video || !runBtn || !consentCheckbox) return; // route not present
+
+  let previewStream = null;
+
+  const setStatus = (msg) => {
+    if (statusEl) statusEl.textContent = msg || '';
+  };
+
+  const setLastResult = (msg) => {
+    if (lastResultEl) lastResultEl.textContent = msg || '';
+  };
+
+  async function startPreview() {
+    // only if consent and not already running
+    if (!state.emotion.allow) return;
+    if (previewStream) return;
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus('Camera not supported in this environment.');
+        return;
+      }
+      setStatus('Requesting camera access…');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      previewStream = stream;
+      video.srcObject = stream;
+      await video.play();
+      setStatus('Preview running. Checks will pause the camera briefly.');
+    } catch (err) {
+      console.error('preview error', err);
+      setStatus('Could not start camera preview. Check permissions in your OS.');
+    }
+  }
+
+  function stopPreview() {
+    if (previewStream) {
+      previewStream.getTracks().forEach(t => t.stop());
+      previewStream = null;
+    }
+    video.srcObject = null;
+  }
+
+  // consent checkbox wiring
+  consentCheckbox.addEventListener('change', async () => {
+    state.emotion.allow = consentCheckbox.checked;
+    saveEmotionPrefs();
+
+    if (state.emotion.allow) {
+      // ask for Notification permission once when user opts in
+      if ('Notification' in window && Notification.permission === 'default') {
+        try { await Notification.requestPermission(); } catch {}
+      }
+      startPreview();
+    } else {
+      stopPreview();
+      setStatus('');
+    }
+  });
+
+  // initial state from prefs
+  consentCheckbox.checked = !!state.emotion.allow;
+  if (state.emotion.allow) {
+    startPreview();
+  }
+
+  // ---- manual check ("Run check now") ----
+  async function runEmotionCheckManual() {
+    if (!state.emotion.allow) {
+      alert('Please enable webcam consent above first.');
+      return;
+    }
+    if (state.emotion.isRunning) return;
+
+    state.emotion.isRunning = true;
+    runBtn.disabled = true;
+    setStatus('Running attentiveness check… webcam preview will pause briefly.');
+    setLastResult('Running attentiveness check…');
+
+    // free webcam for Python (must do this – OS limitation)
+    stopPreview();
+
+    try {
+      const res = await window.electronAPI.ai.attentive();
+      console.log('ai:attentive (manual) result', res);
+
+      if (!res || !res.ok || res.data?.ok === false) {
+        const msg = res?.error || res?.data?.error || 'Attentiveness check failed.';
+        setStatus('');
+        setLastResult('⚠ ' + msg);
+        return;
+      }
+
+      const payload = res.data || {};
+      const score = typeof payload.score === 'number'
+        ? payload.score
+        : (payload.normalized_score ?? 0);
+      const classification = payload.classification || 'Unknown';
+      const emotion = (payload.details && payload.details.emotion) || payload.emotion || '';
+
+      // 1) Save into history
+      state.emotion.history.unshift({
+        ts: Date.now(),
+        score,
+        classification,
+        emotion,
+        source: 'manual'
+      });
+      state.emotion.history = state.emotion.history.slice(0, 50);
+      saveEmotionHistory();
+      renderEmotionHistory();
+
+      // 2) If a focus session is running, append to current-session samples
+      if (TIMER.phase === 'focus') {
+        state.emotion.currentSessionSamples.push({ ts: Date.now(), score, classification, emotion });
+      }
+
+      // 3) Notify user (but DO NOT show numbers in the panel)
+      const isDistracted = (classification || '').toLowerCase() === 'distracted' || score < 6;
+      if (isDistracted) {
+        emotionNotify('StudyBuddy', 'You seem a bit distracted. Try to refocus for a few minutes.');
+      } else {
+        emotionNotify('StudyBuddy', 'Nice, you’re staying focused. Keep going!');
+      }
+
+      setStatus('Check finished.');
+      setLastResult('Last check finished. Details saved to history.');
+    } catch (err) {
+      console.error('ai:attentive (manual) error', err);
+      setStatus('');
+      setLastResult('⚠ ' + String(err));
+    } finally {
+      state.emotion.isRunning = false;
+      runBtn.disabled = false;
+
+      // restart preview if consent still on and user is on this tab
+      if (state.emotion.allow) {
+        startPreview();
+      }
+    }
+  }
+
+  runBtn.addEventListener('click', runEmotionCheckManual);
+
+  // initial history render
+  renderEmotionHistory();
+}
+
+
 
 
 /*==================== Boot ====================*/
@@ -962,6 +1733,13 @@ function boot(){
 
   loadSessions(); // pull existing history and paint stats
 
+  loadAIPdfs();
+  renderAIPdfList();
   wireAI();
+
+  loadEmotionPrefs();
+  loadEmotionHistory();
+  renderEmotionHistory();
+  wireEmotion();
 }
 document.addEventListener('DOMContentLoaded', boot);

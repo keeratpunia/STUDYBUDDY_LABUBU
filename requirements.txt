@@ -5,3 +5,8 @@ pypdf
 python-dotenv
 groq
 fastapi uvicorn
+torch 
+torchvision torchaudio
+opencv-python
+tensorflow
+numpy

@@ -5,12 +5,18 @@ import uuid
 import threading
 from fastapi import FastAPI
 from pydantic import BaseModel
+
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from Emotion_Behavior.attentiveORdistracted_copy import run_attentiveness_check
+                
 jobs = {}
 
 from ai_core import (
-    generate_question_rag,
-    parse_question_response,
-    validate_question_data,
+    generate_single_question,
+    check_answer,
     solve_doubt,
     summarize_notes,
     ingest_pdf,
@@ -18,21 +24,31 @@ from ai_core import (
 
 app = FastAPI(title="StudyBuddy AI Backend")
 
+
 class QuizRequest(BaseModel):
     topic: str
-    difficulty: str = "Medium"  # Easy / Medium / Hard
+    difficulty: str = "Medium"
     num_questions: int = 5
+
+
+class CheckAnswerRequest(BaseModel):
+    question_data: dict
+    user_answer: str
+
 
 class DoubtRequest(BaseModel):
     question: str
     last_answer: Optional[str] = ""
 
+
 class SummaryRequest(BaseModel):
-    mode: str = "Detailed"  # "Brief" or "Detailed"
+    mode: str = "Detailed"
+
 
 class IngestRequest(BaseModel):
-    path : str
-    
+    path: str
+
+
 def run_summary(job_id: str, mode: str):
     try:
         result = summarize_notes(mode)
@@ -45,42 +61,47 @@ def run_summary(job_id: str, mode: str):
 def health():
     return {"status": "ok"}
 
+
 @app.post("/ingest")
 def ingest(req: IngestRequest):
-    """
-    Ingest a local PDF into Chroma using its filesystem path.
-    Electron will give us this path.
-    """
     pages = ingest_pdf(req.path)
     return {"ok": True, "pages": pages, "path": req.path}
 
+
 @app.post("/quiz")
 def quiz(req: QuizRequest):
-    used_questions_texts: List[str] = []
-    questions: List[dict] = []
+    if req.difficulty not in ["Easy", "Medium", "Hard"]:
+        return {"ok": False, "error": "Invalid difficulty"}
+
+    if len(req.topic.strip()) < 2:
+        return {"ok": False, "error": "Topic too short"}
+
+    used_questions = []
+    questions = []
 
     for _ in range(req.num_questions):
-        max_attempts = 8
-        for _attempt in range(max_attempts):
-            raw = generate_question_rag(req.topic, req.difficulty, used_questions_texts)
-            parsed = parse_question_response(raw)
-            if not validate_question_data(parsed):
-                continue
-            if parsed["question"].strip() in used_questions_texts:
-                continue
-            used_questions_texts.append(parsed["question"].strip())
-            questions.append(parsed)
-            break
+        q = generate_single_question(req.topic, req.difficulty, used_questions)
+        if q:
+            used_questions.append(q["question"].strip())
+            questions.append(q)
 
     if not questions:
-        return {"ok": False, "error": "Could not generate questions. Try another topic or difficulty."}
+        return {"ok": False, "error": "No questions could be generated"}
 
-    return {"ok": True, "topic": req.topic, "questions": questions}
+    return {"ok": True, "questions": questions}
+
+
+@app.post("/quiz/check")
+def quiz_check(req: CheckAnswerRequest):
+    correct = check_answer(req.question_data, req.user_answer)
+    return {"ok": True, "correct": correct}
+
 
 @app.post("/doubt")
 def doubt(req: DoubtRequest):
     answer = solve_doubt(req.question, last_answer=req.last_answer or "")
     return {"ok": True, "answer": answer}
+
 
 @app.post("/summarize/start")
 def summarize_start(req: SummaryRequest):
@@ -92,6 +113,8 @@ def summarize_start(req: SummaryRequest):
     t.start()
 
     return {"ok": True, "job_id": job_id}
+
+
 @app.get("/summarize/status/{job_id}")
 def summarize_status(job_id: str):
     job = jobs.get(job_id)
@@ -105,7 +128,9 @@ def summarize_status(job_id: str):
         return {"ok": False, "status": "error", "error": job["result"]}
 
     return {"ok": True, "status": "processing"}
-
+@app.post("/attentive")
+def run_attentive():
+    return { "ok": True, **run_attentiveness_check() }
 
 if __name__ == "__main__":
     port = int(os.environ.get("AI_PORT", "8000"))

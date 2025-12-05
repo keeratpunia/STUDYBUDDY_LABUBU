@@ -431,6 +431,15 @@ ipcMain.handle('ai:ingest', async () => {
     return { ok: false, error: String(err.message || err) };
   }
 });
+ipcMain.handle('ai:attentive', async () => {
+  try {
+    const data = await postToAI('/attentive', {}); // FastAPI endpoint
+    return { ok: true, data };
+  } catch (err) {
+    console.error('[MAIN] ai:attentive error', err);
+    return { ok: false, error: String(err.message || err) };
+  }
+});
 
 
 

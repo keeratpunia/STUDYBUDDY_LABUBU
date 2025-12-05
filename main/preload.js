@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('ai:summarize', { mode }),
   ingest: () =>
     ipcRenderer.invoke('ai:ingest'),
+  attentive: () =>
+    ipcRenderer.invoke('ai:attentive')  
   },
 
   gcalConnect: () => ipcRenderer.invoke('gcal:connect'),

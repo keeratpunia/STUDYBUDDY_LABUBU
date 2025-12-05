@@ -264,6 +264,27 @@ def check_answer(question_data: dict, user_answer: str) -> bool:
         return user_answer.lower() == question_data["correct"].lower()
     except Exception:
         return False
+def generate_single_question(
+    topic: str,
+    difficulty: str,
+    used_questions_texts: Optional[List[str]] = None
+) -> dict:
+    """
+    Convenience helper: generate ONE parsed MCQ dict for given topic+difficulty.
+
+    Returns {} if generation/parsing failed.
+    """
+    if used_questions_texts is None:
+        used_questions_texts = []
+
+    raw = generate_question_rag(topic, difficulty, used_questions_texts)
+    parsed = parse_question_response(raw)
+
+    if not validate_question_data(parsed):
+        return {}
+
+    return parsed
+
 
 # --------- DOUBT SOLVER ----------
 FOLLOW_UP_PHRASES = [

@@ -17,7 +17,9 @@
         </div>
         <nav class="nav">
           <!-- data-route keys must match section IDs below -->
-          <button class="nav-item is-active" data-route="today">☀️ Today</button>
+          <button class="nav-item is-active" data-route="today">
+            ☀️ Today
+          </button>
           <button class="nav-item" data-route="tasks">✅ Tasks</button>
           <button class="nav-item" data-route="plan">📅 Plan</button>
           <button class="nav-item" data-route="settings">⚙️ Settings</button>
@@ -43,23 +45,11 @@
             <button
               id="btnEmotion"
               class="nav-item"
+              data-route="emotion"
               style="display: flex; align-items: center; gap: 8px"
             >
               📸 Emotion (Webcam)
             </button>
-
-            <label
-              style="
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                color: var(--muted);
-                font-size: 12px;
-              "
-            >
-              <input id="chkEmotionConsent" type="checkbox" /> Allow Emotion
-              Detection
-            </label>
           </div>
         </nav>
         <div class="sidebar-foot">
@@ -276,86 +266,111 @@
         </section>
 
         <!-- AI / Chatbot -->
-<section id="route-ai" class="route">
-  <div class="grid">
-    <!-- Left: PDFs & controls -->
-    <div class="card">
-      <div class="section-head">
-        <h2>AI StudyBuddy</h2>
-        <button class="btn small ghost" id="aiAddPdfBtn">
-          + Add PDF notes
-        </button>
-      </div>
+        <section id="route-ai" class="route">
+          <div class="grid">
+            <!-- Left: PDFs & controls -->
+            <div class="card">
+              <div class="section-head">
+                <h2>AI StudyBuddy</h2>
+                <button class="btn small ghost" id="aiAddPdfBtn">
+                  + Add PDF notes
+                </button>
+              </div>
 
-      <p class="muted">
-        Add your PDFs; StudyBuddy will use them to generate quizzes, summaries
-        and answer doubts. Everything stays on your device.
-      </p>
+              <p class="muted">
+                Add your PDFs; StudyBuddy will use them to generate quizzes,
+                summaries and answer doubts. Everything stays on your device.
+              </p>
 
-      <!-- List of ingested PDFs -->
-      <h3 style="margin-top:16px; font-size:14px;">Your notes</h3>
-      <ul class="list" id="aiPdfList">
-        <li class="empty">No PDFs added yet. Click “Add PDF notes”.</li>
-      </ul>
+              <!-- List of ingested PDFs -->
+              <h3 style="margin-top: 16px; font-size: 14px">Your notes</h3>
+              <ul class="list" id="aiPdfList">
+                <li class="empty">No PDFs added yet. Click “Add PDF notes”.</li>
+              </ul>
 
-      <hr style="margin:16px 0; border-color:var(--border-strong); opacity:0.4;" />
+              <hr
+                style="
+                  margin: 16px 0;
+                  border-color: var(--border-strong);
+                  opacity: 0.4;
+                "
+              />
 
-      <!-- Quiz controls -->
-      <h3 style="margin-top:0; font-size:14px;">Quiz generator</h3>
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        <input
-          id="aiTopic"
-          placeholder="Topic (e.g. IPsec, Diffie–Hellman, RSA)…"
-        />
-        <div style="display:flex; gap:8px;">
-          <select id="aiDifficulty" style="flex:1;">
-            <option value="Easy">Easy</option>
-            <option value="Medium" selected>Medium</option>
-            <option value="Hard">Hard</option>
-          </select>
-          <input
-            id="aiNumQuestions"
-            type="number"
-            min="1"
-            max="15"
-            value="5"
-            style="width:80px;"
-          />
-          <button class="btn small" id="aiQuizBtn">Generate quiz</button>
-        </div>
-      </div>
+              <!-- Quiz controls -->
+              <h3 style="margin-top: 0; font-size: 14px">Quiz generator</h3>
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <input
+                  id="aiTopic"
+                  placeholder="Topic (e.g. IPsec, Diffie–Hellman, RSA)…"
+                />
+                <div style="display: flex; gap: 8px">
+                  <select id="aiDifficulty" style="flex: 1">
+                    <option value="Easy">Easy</option>
+                    <option value="Medium" selected>Medium</option>
+                    <option value="Hard">Hard</option>
+                  </select>
+                  <input
+                    id="aiNumQuestions"
+                    type="number"
+                    min="1"
+                    max="15"
+                    value="5"
+                    style="width: 80px"
+                  />
+                  <button class="btn small" id="aiQuizBtn">
+                    Generate quiz
+                  </button>
+                </div>
+              </div>
 
-      <hr style="margin:16px 0; border-color:var(--border-strong); opacity:0.4;" />
+              <hr
+                style="
+                  margin: 16px 0;
+                  border-color: var(--border-strong);
+                  opacity: 0.4;
+                "
+              />
 
-      <!-- Doubt solver controls -->
-      <h3 style="margin-top:0; font-size:14px;">Ask a doubt</h3>
-      <textarea
-        id="aiQuestionInput"
-        rows="3"
-        placeholder="Ask a question from your notes…"
-        style="resize:vertical;"
-      ></textarea>
-      <button class="btn small" id="aiAskBtn" style="margin-top:8px;">
-        Ask
-      </button>
+              <!-- Doubt solver controls -->
+              <h3 style="margin-top: 0; font-size: 14px">Ask a doubt</h3>
+              <textarea
+                id="aiQuestionInput"
+                rows="3"
+                placeholder="Ask a question from your notes…"
+                style="resize: vertical"
+              ></textarea>
+              <button class="btn small" id="aiAskBtn" style="margin-top: 8px">
+                Ask
+              </button>
 
-      <hr style="margin:16px 0; border-color:var(--border-strong); opacity:0.4;" />
+              <hr
+                style="
+                  margin: 16px 0;
+                  border-color: var(--border-strong);
+                  opacity: 0.4;
+                "
+              />
 
-      <!-- Summary controls -->
-      <h3 style="margin-top:0; font-size:14px;">Summarize notes</h3>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <select id="aiSummaryMode" style="flex:1;">
-          <option value="Brief">Brief</option>
-          <option value="Detailed" selected>Detailed</option>
-        </select>
-        <button class="btn small" id="aiSummarizeBtn">Summarize</button>
-      </div>
-    </div>
+              <!-- Summary controls -->
+              <h3 style="margin-top: 0; font-size: 14px">Summarize notes</h3>
+              <div style="display: flex; gap: 8px; align-items: center">
+                <select id="aiSummaryMode" style="flex: 1">
+                  <option value="Brief">Brief</option>
+                  <option value="Detailed" selected>Detailed</option>
+                </select>
+                <button class="btn small" id="aiSummarizeBtn">Summarize</button>
+              </div>
+            </div>
 
-    <!-- Right: Result panel -->
+            <!-- Right: Result panel -->
+                 <!-- Right: Result panel -->
     <div class="card">
       <h2>Result</h2>
-      <div id="aiStatus" class="muted" style="min-height:18px; margin-bottom:8px;"></div>
+      <div
+        id="aiStatus"
+        class="muted"
+        style="min-height: 18px; margin-bottom: 8px"
+      ></div>
       <div
         id="aiResult"
         style="
@@ -364,17 +379,135 @@
           background: var(--surface-2);
           padding: 12px;
           min-height: 220px;
-          white-space: pre-wrap;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-          font-size: 13px;
+          font-size: 14px;
         "
       >
         Select a feature on the left to see output here.
       </div>
     </div>
-  </div>
-</section>
 
+
+          </div>
+        </section>
+
+        <!-- Emotion / Attentiveness -->
+        <!-- Emotion / Attentiveness -->
+        <section id="route-emotion" class="route">
+          <div class="grid">
+            <!-- Left: webcam preview -->
+            <div class="card">
+              <div class="section-head">
+                <h2>Emotion & Attentiveness</h2>
+              </div>
+              <p class="muted">
+                StudyBuddy can quietly monitor your face during focus sessions
+                and nudge you if you seem distracted. Everything runs locally on
+                your machine.
+              </p>
+
+              <!-- consent inside the card -->
+              <label
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  color: var(--muted);
+                  font-size: 13px;
+                  margin: 12px 0 4px;
+                "
+              >
+                <input id="chkEmotionConsent" type="checkbox" />
+                Allow StudyBuddy to use my webcam for attentiveness checks
+              </label>
+
+              <div
+                style="
+                  display: flex;
+                  flex-direction: column;
+                  gap: 12px;
+                  margin-top: 8px;
+                "
+              >
+                <div
+                  style="
+                    border-radius: 12px;
+                    border: 1px solid var(--border-strong);
+                    background: var(--surface-2);
+                    padding: 8px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    align-items: center;
+                  "
+                >
+                  <video
+                    id="emotionVideo"
+                    autoplay
+                    playsinline
+                    style="
+                      width: 100%;
+                      max-width: 360px;
+                      border-radius: 10px;
+                      background: #000;
+                    "
+                  ></video>
+                  <div
+                    style="
+                      display: flex;
+                      gap: 8px;
+                      flex-wrap: wrap;
+                      justify-content: center;
+                    "
+                  >
+                    <!-- we keep only a manual button, no preview controls -->
+                    <button class="btn small" id="emotionRun">
+                      Run check now
+                    </button>
+                  </div>
+                  <div
+                    id="emotionStatus"
+                    class="muted"
+                    style="
+                      font-size: 12px;
+                      text-align: center;
+                      min-height: 18px;
+                    "
+                  ></div>
+                </div>
+
+                <div
+                  id="emotionLastResult"
+                  class="muted"
+                  style="
+                    font-size: 13px;
+                    padding: 8px 10px;
+                    border-radius: 10px;
+                    border: 1px dashed var(--border-strong);
+                    background: var(--surface-1);
+                  "
+                >
+                  Once you start a focus session and give webcam permission,
+                  StudyBuddy will take quick 10-second snapshots every few
+                  minutes and ping you if you drift off.
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: history -->
+            <div class="card">
+              <div class="section-head">
+                <h2>History</h2>
+              </div>
+              <p class="muted" style="font-size: 13px">
+                Previous attentiveness snapshots and per-session averages
+                (stored locally on this device).
+              </p>
+              <ul class="list" id="emotionHistory">
+                <li class="empty">No history yet.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
 
         <!-- Settings -->
         <section id="route-settings" class="route">
@@ -476,90 +609,6 @@
                   <label>Click-through</label>
                   <input type="checkbox" id="setClickThrough" />
                 </div>
-              </div>
-            </div>
-          </div>
-        </section>
-                <!-- Chatbot / AI StudyBuddy -->
-        <section id="route-chatbot" class="route">
-          <div class="card">
-            <div class="section-head">
-              <h2>AI StudyBuddy</h2>
-                <button class="btn small ghost" id="aiAddPdfBtn">
-                  + Add PDF notes                 
-                </button>
-            </div>
-
-            <div class="ai-layout">
-              <div class="ai-left">
-                <h3 style="margin-bottom:4px;">Topic Quiz</h3>
-                <div class="ai-group">
-                  <label for="aiTopic">Topic</label>
-                  <input
-                    id="aiTopic"
-                    placeholder="e.g. Diffie–Hellman key exchange"
-                  />
-                </div>
-
-                <div class="ai-row">
-                  <div class="ai-group">
-                    <label for="aiDifficulty">Difficulty</label>
-                    <select id="aiDifficulty">
-                      <option value="Easy">Easy</option>
-                      <option value="Medium" selected>Medium</option>
-                      <option value="Hard">Hard</option>
-                    </select>
-                  </div>
-                  <div class="ai-group">
-                    <label for="aiNumQuestions">Questions</label>
-                    <input
-                      id="aiNumQuestions"
-                      type="number"
-                      min="1"
-                      max="15"
-                      value="5"
-                    />
-                  </div>
-                </div>
-
-                <button class="btn small" id="aiQuizBtn">
-                  Generate quiz
-                </button>
-
-                <hr class="ai-divider" />
-
-                <h3 style="margin-bottom:4px;">Doubt Solver</h3>
-                <div class="ai-row">
-                  <input
-                    id="aiQuestionInput"
-                    placeholder="Ask a doubt about your notes…"
-                  />
-                  <button class="btn small" id="aiAskBtn">Ask</button>
-                </div>
-
-                <hr class="ai-divider" />
-
-                <h3 style="margin-bottom:4px;">Summarize Notes</h3>
-                <div class="ai-row">
-                  <select id="aiSummaryMode">
-                    <option value="Brief">Brief</option>
-                    <option value="Detailed" selected>Detailed</option>
-                  </select>
-                  <button class="btn small" id="aiSummarizeBtn">
-                    Summarize
-                  </button>
-                </div>
-
-                <div
-                  id="aiStatus"
-                  class="muted"
-                  style="margin-top: 8px; font-size: 12px"
-                ></div>
-              </div>
-
-              <div class="ai-right">
-                <h3 style="margin-top:0;">Result</h3>
-                <pre id="aiResult" class="ai-result-box"></pre>
               </div>
             </div>
           </div>
