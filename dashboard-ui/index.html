@@ -23,7 +23,8 @@
           <button class="nav-item" data-route="tasks">✅ Tasks</button>
           <button class="nav-item" data-route="plan">📅 Plan</button>
           <button class="nav-item" data-route="settings">⚙️ Settings</button>
-          <!-- add inside .sidebar, near .sidebar-foot or where other controls exist -->
+          <button class="nav-item" data-route="analytics">📊 Analytics</button>
+
           <div
             class="sidebar-actions"
             style="
@@ -508,6 +509,54 @@
             </div>
           </div>
         </section>
+        <!--analytics-->
+        <section id="route-analytics" class="route">
+  <div class="card">
+    <div class="section-head" style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>Analytics</h2>
+      <button class="btn small" id="printAnalyticsBtn">Print Report</button>
+    </div>
+
+    <!-- KPI -->
+    <div id="analyticsStats" class="analytics-grid"></div>
+
+    <!-- Charts Grid -->
+    <div class="analytics-charts">
+
+      <div class="chart-card">
+        <h3>Focus Trend</h3>
+        <canvas id="focusChart"></canvas>
+      </div>
+
+      <div class="chart-card">
+        <h3>Attention Trend</h3>
+        <canvas id="attentionChart"></canvas>
+      </div>
+
+      <div class="chart-card">
+        <h3>Focus vs Distracted</h3>
+        <canvas id="distractedPie"></canvas>
+      </div>
+
+      <div class="chart-card">
+        <h3>Session Duration Distribution</h3>
+        <canvas id="sessionDurationChart"></canvas>
+      </div>
+
+      <div class="chart-card">
+        <h3>Focus vs Break Ratio</h3>
+        <canvas id="focusBreakChart"></canvas>
+      </div>
+
+    </div>
+
+    <div style="margin-top:30px;">
+      <h3>Study Streak (Last 30 Days)</h3>
+      <div id="streakGrid"></div>
+    </div>
+  </div>
+</section>
+
 
         <!-- Settings -->
         <section id="route-settings" class="route">
@@ -617,5 +666,7 @@
     </div>
 
     <script src="./app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   </body>
 </html>

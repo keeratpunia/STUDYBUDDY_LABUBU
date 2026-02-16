@@ -337,10 +337,6 @@ ipcMain.handle('timer:sessions:add', (_evt, entry) => {
   return sessions;
 });
 
-
-
-
-
 const axios = require('axios');
 const AI_BASE_URL = 'http://127.0.0.1:8000';
 
@@ -441,5 +437,14 @@ ipcMain.handle('ai:attentive', async () => {
   }
 });
 
+ipcMain.handle('ai:analytics', async (_evt, payload) => {
+  try {
+    const res = await axios.post(`${AI_BASE_URL}/analytics`, payload);
+    return { ok: true, data: res.data };
+  } catch (err) {
+    console.error('ai:analytics error', err);
+    return { ok: false, error: String(err.message || err) };
+  }
+});
 
 

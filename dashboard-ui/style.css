@@ -276,3 +276,27 @@ input::placeholder { color: var(--placeholder); }
 .muted {
   color: var(--muted);
 }
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 30px;
+}
+
+.analytics-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 24px;
+}
+
+.chart-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  padding: 16px;
+  border-radius: 12px;
+}
+
+.chart-card h3 {
+  margin-bottom: 10px;
+  font-size: 15px;
+}

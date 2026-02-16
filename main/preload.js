@@ -28,7 +28,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ingest: () =>
     ipcRenderer.invoke('ai:ingest'),
   attentive: () =>
-    ipcRenderer.invoke('ai:attentive')  
+    ipcRenderer.invoke('ai:attentive'),
+  analytics: (payload) =>
+  ipcRenderer.invoke('ai:analytics', payload)
   },
 
   gcalConnect: () => ipcRenderer.invoke('gcal:connect'),

@@ -599,6 +599,10 @@ function showRoute(name){
   $(`#route-${name}`)?.classList.add('is-visible');
   $$('.nav-item').forEach(b=>b.classList.remove('is-active'));
   $(`.nav-item[data-route="${name}"]`)?.classList.add('is-active');
+  if (name === 'analytics') {
+  loadAnalytics();
+}
+
 }
 function wireNav(){
   $$('.nav-item').forEach(btn=>btn.addEventListener('click',()=>showRoute(btn.dataset.route)));
@@ -755,6 +759,10 @@ function finishFocus(){
   state.emotion.currentSessionSamples = [];
 
   startPhase(nextBreakKind());
+  if (document.querySelector('#route-analytics')?.classList.contains('is-visible')) {
+  loadAnalytics();
+}
+
 }
 
 
@@ -1743,3 +1751,245 @@ function boot(){
   wireEmotion();
 }
 document.addEventListener('DOMContentLoaded', boot);
+
+let chartInstances = {};
+
+function destroyCharts() {
+  Object.values(chartInstances).forEach(chart => {
+    if (chart) chart.destroy();
+  });
+  chartInstances = {};
+}
+
+async function loadAnalytics() {
+
+
+  const container = document.getElementById('analyticsStats');
+  if (!container) return;
+
+  destroyCharts();
+
+  const focusSessions = state.sessions.filter(s => s.type === 'focus');
+  const breakSessions = state.sessions.filter(s => s.type.includes('break'));
+
+  const totalMinutes = focusSessions.reduce((sum, s) => sum + s.seconds/60, 0);
+
+  const completionRate = focusSessions.length
+    ? ((focusSessions.filter(s => s.completed).length / focusSessions.length) * 100).toFixed(1)
+    : 0;
+
+  const avgAttention = state.emotion.history.length
+    ? (state.emotion.history.reduce((sum,e)=>sum+e.score,0)
+        / state.emotion.history.length).toFixed(2)
+    : 0;
+
+  container.innerHTML = `
+    <div class="card" style="padding:16px;">
+      <h4>Total Focus</h4>
+      <div style="font-size:22px;font-weight:600;">${totalMinutes.toFixed(1)} min</div>
+    </div>
+
+    <div class="card" style="padding:16px;">
+      <h4>Completion Rate</h4>
+      <div style="font-size:22px;font-weight:600;">${completionRate}%</div>
+    </div>
+
+    <div class="card" style="padding:16px;">
+      <h4>Avg Attention</h4>
+      <div style="font-size:22px;font-weight:600;">${avgAttention}/10</div>
+    </div>
+
+    <div class="card" style="padding:16px;">
+      <h4>Total Sessions</h4>
+      <div style="font-size:22px;font-weight:600;">${focusSessions.length}</div>
+    </div>
+  `;
+
+  // 🔹 Focus Trend (line)
+  chartInstances.focus = new Chart(document.getElementById('focusChart'), {
+    type: 'line',
+    data: {
+      labels: focusSessions.map((_,i)=>`S${i+1}`),
+      datasets: [{
+        label: 'Focus Minutes',
+        data: focusSessions.map(s => (s.seconds/60).toFixed(1)),
+        tension: 0.3
+      }]
+    }
+  });
+  // 🔹 Focus vs Distracted (from emotion history)
+const distracted = state.emotion.history.filter(e =>
+  (e.classification || '').toLowerCase() === 'distracted'
+).length;
+
+const focused = state.emotion.history.length - distracted;
+
+chartInstances.distracted = new Chart(
+  document.getElementById('distractedPie'),
+  {
+    type: 'doughnut',
+    data: {
+      labels: ['Focused', 'Distracted'],
+      datasets: [{
+        data: [focused, distracted],
+        backgroundColor: [
+          'rgba(139,124,251,0.85)',   // soft purple (matches your accent)
+          'rgba(255,99,132,0.75)'     // softer red
+        ],
+        borderColor: [
+          'rgba(139,124,251,1)',
+          'rgba(255,99,132,1)'
+        ],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      plugins: {
+        legend: {
+          labels: {
+            color: '#cbd5e1',   // soft text color
+            font: { size: 12 }
+          }
+        }
+      }
+    }
+  }
+);
+
+
+
+  // 🔹 Attention Trend
+   // 🔹 Attention Trend (FIXED ORDER)
+
+const att = state.emotion.history
+  .slice(0,10)                
+  .sort((a, b) => a.ts - b.ts);  
+
+chartInstances.attention = new Chart(
+  document.getElementById('attentionChart'),
+  {
+    type: 'line',
+    data: {
+      labels: att.map(e => {
+      const d = new Date(e.ts);
+      const h = d.getHours().toString().padStart(2, '0');
+      const m = d.getMinutes().toString().padStart(2, '0');
+      return `${h}:${m}`;
+    }),
+
+      datasets: [{
+        label: 'Attention Score',
+        data: att.map(e => e.score),
+        tension: 0.3
+      }]
+    },
+    options: {
+      scales: {
+        y: { min: 0, max: 10 }
+      }
+    }
+  }
+);
+
+
+  // 🔹 Session Duration Distribution
+  chartInstances.duration = new Chart(document.getElementById('sessionDurationChart'), {
+    type: 'bar',
+    data: {
+      labels: focusSessions.map((_,i)=>`S${i+1}`),
+      datasets: [{
+        label: 'Duration (min)',
+        data: focusSessions.map(s => (s.seconds/60).toFixed(1))
+      }]
+    }
+  });
+
+  // 🔹 Focus vs Break Ratio
+  chartInstances.ratio = new Chart(
+  document.getElementById('focusBreakChart'),
+  {
+    type: 'doughnut',
+    data: {
+      labels: ['Focus Sessions', 'Break Sessions'],
+      datasets: [{
+        data: [focusSessions.length, breakSessions.length],
+        backgroundColor: [
+          'rgba(139,124,251,0.85)',   // soft purple (focus)
+          'rgba(255,159,64,0.75)'     // soft orange (break)
+        ],
+        borderColor: [
+          'rgba(139,124,251,1)',
+          'rgba(255,159,64,1)'
+        ],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      cutout: '65%',   // makes it thinner and cleaner
+      plugins: {
+        legend: {
+          labels: {
+            color: '#cbd5e1',
+            font: { size: 12 }
+          }
+        }
+      }
+    }
+  }
+);
+
+
+  renderStreakGrid();
+
+  document.getElementById('printAnalyticsBtn').onclick = () => window.print();
+}
+
+
+
+
+function renderStreakGrid() {
+  const grid = document.getElementById('streakGrid');
+  if (!grid) return;
+
+  grid.innerHTML = '';
+  grid.style.display = 'grid';
+  grid.style.gridTemplateColumns = 'repeat(7, 1fr)';
+  grid.style.gap = '4px';
+
+  const days = 30; // last 12 weeks
+  const today = new Date();
+
+  for (let i = days; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(today.getDate() - i);
+
+    const start = new Date(d);
+    start.setHours(0,0,0,0);
+
+    const end = new Date(start);
+    end.setDate(end.getDate()+1);
+
+    const minutes = state.sessions
+      .filter(s =>
+        s.type === 'focus' &&
+        s.startTs >= start.getTime() &&
+        s.startTs < end.getTime()
+      )
+      .reduce((sum, s) => sum + s.seconds/60, 0);
+
+    const cell = document.createElement('div');
+    cell.style.height = '14px';
+    cell.style.borderRadius = '3px';
+
+    let intensity = Math.min(minutes / 60, 1); // cap at 60 min
+    cell.style.background =
+      minutes === 0
+        ? '#2a2a2a'
+        : `rgba(139,124,251,${0.2 + intensity})`;
+
+    cell.title = `${d.toDateString()} — ${Math.round(minutes)} min`;
+
+    grid.appendChild(cell);
+  }
+}
+
